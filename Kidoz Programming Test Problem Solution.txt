@@ -1,0 +1,135 @@
+/********************* Solution ******************************
+**************************************************************
+* Part 1 Heavy Calculation
+* 
+* Goal: speed up performance
+* Analayze: performance bottle neck: heavy calcuation involved in employee 
+*           yearsEmployed
+* bottle neck block (Stripped out pure functions whose output is based solely on its input.)
+*        let payrollInfo = payroll[index];
+*        let addressInfo = addresses.find(x => x.emp_id == payrollInfo.emp_id);
+*        let empInfo = employees.find(x => x.id == payrollInfo.emp_id);
+*        const yearsEmployed = yearsSince(empInfo.endDate, today)
+* Solution:
+*   Memoization is one of the techniques in JavaScript to speed up the lookup of
+*   expensive operations by caching the results and re-using the cache in the next operation.
+*   Basically, if the function is called with the same inputs, 
+*   we directly return the result in the cache.
+* Concern:
+* trades heavy memory usage for speed.
+
+* Part 2 Send Email task
+* Analyze:
+*   Perform concurrency would speed it up
+*   With python, django I have used django-rq before
+*   https://github.com/rq/django-rq
+*   Django integration with RQ, a Redis based Python queuing library
+*   I can span more workers to perform concurrency
+
+* Solutoin:
+*   For typescript, it must have similar tool of queue, worker purpose
+*   Here is the one I found: https://github.com/OptimalBits/bull
+*   Can set up more wokers to send out emails concurrently
+*   Setting up the tool in the application should be fairly directly
+*   I have attached a docker yml file that has set up rq as a docker container 
+*   which works with the rest of the applications
+*   Just for your reference, might not be much related to the test. 
+***************************************************************/
+
+export interface AddressBook {
+    emp_id: string|null;
+    first: string;
+    last: string;
+    email: string;
+}
+export interface Payroll {
+    emp_id: string;
+    vacationDays: number;
+}
+interface Employee {
+    id: string;
+    name: string;
+    startDate: Date;
+    endDate: Date|null;
+  }
+export interface EmailApi {
+    sendEmail(email: string, subject: string, body: string): void
+}
+
+@memoize()
+function yearsSince(startDate: Date, endDate: Date): number {
+    const millisecondsPerYear = 365 * 24 * 60 * 60 * 1000;
+    return ( endDate.getTime() - startDate.getTime() ) / millisecondsPerYear;
+}
+/**
+ * We haved decided to grant bonus vacation to every employee, 1 day per year of experience
+ * we need to email them a notice.
+ */
+function grantVacation(
+    emailApi: EmailApi,
+    payroll: Payroll[],
+    addresses: AddressBook[],
+    employees: Employee[],
+) {
+    for (var index in payroll) {
+        let empIdFromPayroll = getEmpIdFromPayroll(index);
+        let vacatoinDaysFromPayroll = getVacatoinDaysFromPayroll(index);
+        let addressInfo = getAddress(empIdFromPayroll);
+        let empInfoName = getEmployeeName(empIdFromPayroll)
+        let empInfoEndDate = getEmployeeEndDate(empIdFromPayroll)
+
+        let today = new Date()
+        const yearsEmployed = yearsSince(empInfoEndDate, today);  
+
+        let newVacationBalance = yearsEmployed + vacatoinDaysFromPayroll;
+        emailApi.sendEmail(
+            addressInfo,
+            "Good news!",
+            `Dear ${empInfoName}\n` +
+            `based on your ${yearsEmployed} years of employment, you have been granted ${yearsEmployed} days of vacation, bringing your total to ${newVacationBalance}`
+        );
+    }
+}
+
+/* cache: key value pair */
+@memoize()
+function getEmpIdFromPayroll(index: number) {
+    return payroll[index].emp_id;
+}
+
+@memoize()
+function getVacatoinDaysFromPayroll(index: number) {
+    return payroll[index].vacationDays;
+}
+
+@memoize()
+function getAddress(empId : string) {
+    return addresses.find(x => x.emp_id == empId).email;
+}
+
+@memoize()
+function getEmployeeName(empId : string) {
+    return employees.find(x => x.id == empId).name;
+}
+
+@memoize()
+function getEmployeeEndDate(empId : string) {
+    return employees.find(x => x.id == empId).endDate;
+}
+
+/* **************************************************************
+* There are multiple configurations in the memoizee npm package and 
+* you can change your cache strategy by passing
+* config object to @memoize(config) and modify
+* your memoize decorator by taking in config as*
+* a parameter and pass to memoizee function: 
+*/
+export function memoize(config?) {
+  return function(target, key, descriptor) {
+    const oldFunction = descriptor.value;
+    const newFunction = memoizee(oldFunction, config);
+    descriptor.value = function () {
+      return newFunction.apply(this, arguments);
+    };
+  };
+};
